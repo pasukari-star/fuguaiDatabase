@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>粉体塗装 不具合レポート・対策データベース</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <div id="trouble-db-root"></div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyC4K1DTi4GLHmCRGHP1d4UglfzMSgNzSVM",
+    authDomain: "powdercoating-9254b.firebaseapp.com",
+    projectId: "powdercoating-9254b",
+    storageBucket: "powdercoating-9254b.firebasestorage.app",
+    messagingSenderId: "1094264514813",
+    appId: "1:1094264514813:web:a6edb6b3c96b12fbbc7694"
+  };
+
+  let db = null;
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+  } catch (e) { console.error("Firebase 初期化エラー:", e); }
+
+  function verifyAdminPassword() {
+    const inputPass = prompt('【管理者専用機能】\n管理者パスワードを入力してください:');
+    if (inputPass === null) return false;
+    // 規定の管理者パスワードチェック（必要に応じて調整）
+    if (inputPass.trim() === '19850715') return true;
+    alert('管理者パスワードが違います。権限がありません。');
+    return false;
+  }
+</script>
+
+<script type="text/babel">
+  const { useState, useEffect, useMemo } = React;
+
+  const initialData = [
+      { id: "1", title: "ハジキ（クレーター）", category: "表面異常", description: "塗膜表面にすり鉢状のくぼみができる", cause: "油分・シリコン等の付着、エアーへの水分混入", countermeasure: "脱脂工程の強化、フィルター清掃", consideration: "シリコンは極微量でも発生。ハンドクリームにも注意。", icon: "fa-droplet", color: "blue" },
+      { id: "3", title: "ブツ（異物混入）", category: "表面異常", description: "塗膜表面に小さな突起物が発生", cause: "空気中のゴミ、回収粉のメッシュ抜け", countermeasure: "塗装室の清掃、シフターの点検", consideration: "発生箇所（表面か層間か）の観察で原因特定を。", icon: "fa-bug", color: "yellow" },
+      { id: "7", title: "ピンホール", category: "表面異常", description: "塗膜を貫通する微細な穴が開く", cause: "素地の巣穴からの空気膨張、粉体の吸湿", countermeasure: "プレヒートの実施、脱ガス性パウダーの使用", consideration: "鋳物で特に発生しやすい。素材側のガス抜け対策が必須。", icon: "fa-circle-dot", color: "indigo" },
+      { id: "19", title: "ガスピン（ブリスター）", category: "表面異常", description: "塗膜内部に気泡が残り、膨らむ", cause: "厚塗りによるガス抜け不良", countermeasure: "適正膜厚の維持、昇温プロファイルの見直し", consideration: "硬化反応が早すぎる粉体でも発生。ゆっくり昇温させるのが吉。", icon: "fa-bubbles", color: "cyan" },
+      { id: "25", title: "リコート時のピンホール", category: "表面異常", description: "再塗装後、水疱のような穴が無数に開く", cause: "水拭き後の乾燥不足による水蒸気爆発", countermeasure: "エアブローの徹底と完全自然乾燥後の塗装", consideration: "水分が少しでも残ると確実に発生する。焦りは禁物。", icon: "fa-droplet-slash", color: "blue" },
+      { id: "26", title: "ケバ混入", category: "表面異常", description: "糸状のゴミが塗膜に埋まる", cause: "水拭き用タオルの繊維落ち、作業着の糸くず", countermeasure: "工業用マイクロファイバークロスの使用", consideration: "エッジ部に引っ掛かった繊維が原因になりやすい。", icon: "fa-lines-leaning", color: "slate" },
+      { id: "27", title: "溶接部のワキ", category: "表面異常", description: "溶接ビード周辺に気泡やピンホールが集中", cause: "溶接フラックスの残渣、溶接内部の空気膨張", countermeasure: "スラグの完全除去、サンダー掛け、プレヒート", consideration: "溶接部のピンホールは錆の起点になるため厳格な対処が必要。", icon: "fa-fire-flame-simple", color: "red" },
+      { id: "51", title: "リコート時の拭き跡・手形", category: "外観異常", description: "再塗装後に拭き跡や手形が模様として浮き出る", cause: "素手での接触による皮脂付着、不適切なウエスによる汚れの引き伸ばし", countermeasure: "ニトリル手袋の着用、脱脂専用クロスでの清掃", consideration: "リコート時は下地が仕上がっているため、わずかな汚れでも上塗りにダイレクトに影響する。", icon: "fa-hand", color: "pink" },
+      { id: "52", title: "水拭き後の拭き跡（ウォーターマーク）", category: "外観異常", description: "再塗装時に水拭きした跡がそのまま残る", cause: "水道水に含まれるカルキや不純物の残留、拭き取り不足", countermeasure: "純水・脱イオン水の使用、乾いた綺麗なクロスでの乾拭き徹底", consideration: "水道水での拭き取りは不純物が残るため、最終仕上げ前の清掃には不向き。", icon: "fa-water", color: "blue" },
+      { id: "53", title: "ハンガー塗膜の弾け飛散", category: "表面異常", description: "焼き付け中にハンガーの古い塗膜が弾けてワークに付着する", cause: "ハンガーに蓄積した厚塗り塗膜の内部ガス膨張や熱収縮による剥離", countermeasure: "ハンガーの定期的な剥離清掃（ショットブラストや加熱剥離）", consideration: "厚く堆積した塗膜はアース不良だけでなく、熱で爆ぜる原因にもなる。", icon: "fa-bomb", color: "red" },
+      { id: "54", title: "搬入時の台車からのゴミ落下", category: "表面異常", description: "窯への搬入時、振動で台車からゴミや塗料がワークに落ちる", cause: "台車上の清掃不足、キャスターの振動による堆積物の落下", countermeasure: "窯入れ前の台車エアブロー清掃、キャスターのメンテナンス", consideration: "台車の下部やフレームの裏側など、普段見えない部分に溜まった塗料粉が原因になりやすい。", icon: "fa-truck-ramp-box", color: "stone" },
+      { id: "55", title: "炉内ポールからのゴミ落下", category: "表面異常", description: "窯内のポールにハンガーを掛ける際、ポール上のゴミが落ちて付着", cause: "炉内ポール上部に堆積したススや焼き付いた塗料の粉末", countermeasure: "炉内ポールの定期的な拭き取り・空焼き清掃", consideration: "製品の真上に位置するポールやレールは、最もクリティカルなゴミの発生源となる。", icon: "fa-lines-leaning", color: "gray" },
+      { id: "4", title: "ゆず肌", category: "外観異常", description: "みかんの皮のような細かい凹凸", cause: "膜厚不適正、昇温速度が遅い", countermeasure: "適正膜厚の管理、昇温速度アップ", consideration: "意匠として許容される場合もあるが、平滑性重視なら膜厚管理。", icon: "fa-lemon", color: "orange" },
+      { id: "6", title: "逆電離現象", category: "外観異常", description: "表面に微小なクレーターや星状の模様", cause: "過電圧により蓄積電荷が放電し塗膜破壊", countermeasure: "電圧・電流を下げる、ガン距離を離す", consideration: "厚塗り時に発生しやすい。電流制御（AFC）機能が有効。", icon: "fa-bolt", color: "red" },
+      { id: "8", title: "色ムラ", category: "外観異常", description: "濃淡や色調の違いが発生", cause: "膜厚ばらつき、メタリックの配向不良", countermeasure: "均一な膜厚管理、メタリック専用ノズル使用", consideration: "回収粉の混入比率で色が変わるため、一定比率の維持を。", icon: "fa-palette", color: "pink" },
+      { id: "10", title: "光沢不良", category: "外観異常", description: "指定されたツヤが出ない", cause: "異種粉体の混入、オーバーベイク", countermeasure: "色替え清掃徹底、設定温度の厳守", consideration: "アクリルとエポキシが微量混ざるだけで著しい光沢低下。", icon: "fa-sun", color: "yellow" },
+      { id: "11", title: "黄変（変色）", category: "外観異常", description: "加熱により黄色く変色する", cause: "オーバーベイク、燃焼ガスの直接接触", countermeasure: "焼き付け条件の適正化、耐熱樹脂への変更", consideration: "エポキシ系は熱や紫外線で黄変しやすい。", icon: "fa-triangle-exclamation", color: "orange" },
+      { id: "16", title: "隠蔽不良（透け）", category: "外観異常", description: "下地の色が透けて見える", cause: "膜厚不足、顔料分が少ない（赤・黄系）", countermeasure: "規定膜厚の確保、下塗りの実施", consideration: "鮮やかな色は隠蔽性が低い。テスト塗りが必須。", icon: "fa-eye-slash", color: "emerald" },
+      { id: "17", title: "糸引き", category: "外観異常", description: "クモの糸のように塗料が飛んで付着", cause: "粉体の過剰帯電、微粉の多さ", countermeasure: "ガン先端清掃、電圧低下、回収粉の微粉カット", consideration: "新粉と回収粉の適正比率（例: 7:3）の維持を。", icon: "fa-spider", color: "gray" },
+      { id: "18", title: "ウォータースポット", category: "外観異常", description: "水滴の跡が白く残る", cause: "冷却不足状態で水滴が付着", countermeasure: "梱包前の完全冷却", consideration: "梅雨時期に屋外放置すると発生。結露にも注意。", icon: "fa-water", color: "blue" },
+      { id: "20", title: "コンタミネーション", category: "外観異常", description: "異なる色のパウダーが混入", cause: "色替え時の清掃不足", countermeasure: "専用ホースの用意、清掃手順の標準化", consideration: "白系に黒系が1粒混ざるだけで不良。サイクロン内部の確認も。", icon: "fa-recycle", color: "rose" },
+      { id: "28", title: "リコート時の逆電離", category: "外観異常", description: "再塗装時、瞬時に星状の模様やハジキが発生", cause: "下地塗膜が絶縁体となり、表面に異常に電荷が蓄積", countermeasure: "ガン電圧・電流を極限まで下げる、ガン距離を離す、水拭きによる除電", consideration: "リコート時は通常の半分以下の電圧・電流設定が基本。", icon: "fa-bolt-lightning", color: "red" },
+      { id: "29", title: "パッチワークムラ", category: "外観異常", description: "帯電ムラにより斑模様になる", cause: "ガンのアース不良、被塗物のアース不良", countermeasure: "ハンガーの接点清掃、アース線の確認", consideration: "アースが取れていないと粉が不規則に乗り、ムラになる。", icon: "fa-chess-board", color: "slate" },
+      { id: "30", title: "メタリックの黒ずみ", category: "外観異常", description: "メタリック色が暗く、濁って見える", cause: "回収粉の過剰使用によるアルミ顔料の破壊・劣化", countermeasure: "回収粉の比率を下げる、新品パウダーのみを使用", consideration: "メタリック粉は回収サイクロンでアルミ片が変形し輝度を失う。", icon: "fa-gem", color: "slate" },
+      { id: "31", title: "塗り継ぎムラ", category: "外観異常", description: "手吹き作業の重なり部分が目立つ", cause: "ガンの動かし方の不均一、塗布量過多", countermeasure: "ロボット塗装の導入、ガン運びのトレーニング", consideration: "特にメタリックやクリアー塗装で目立ちやすい。", icon: "fa-paintbrush", color: "pink" },
+      { id: "32", title: "ガス焼け（ブラッシング）", category: "外観異常", description: "直火オーブン内で塗膜が曇る、艶が落ちる", cause: "バーナーの不完全燃焼によるNOxガス等の影響", countermeasure: "バーナーの燃焼調整、間接加熱オーブンへの変更", consideration: "冬場など、オーブンの吸気口付近の環境変化でも発生する。", icon: "fa-smog", color: "gray" },
+      { id: "2", title: "タレ", category: "膜厚異常", description: "塗膜が重力により下方に流れ落ちる", cause: "塗布量過多、昇温が早すぎる", countermeasure: "吐出量適正化、昇温プロファイル調整", consideration: "粉体は溶剤に比べタレにくいがエッジ部過剰付着に注意。", icon: "fa-arrow-down", color: "red" },
+      { id: "33", title: "昇温遅れによるタレ", category: "膜厚異常", description: "厚肉品でゆっくりタレが発生", cause: "肉厚のため熱が伝わらず、溶融状態が長く続きすぎる", countermeasure: "プレヒートの実施、設定温度の初期引き上げ", consideration: "薄板と同じ条件で分厚い鉄板を焼くと発生しやすい。", icon: "fa-temperature-arrow-down", color: "orange" },
+      { id: "5", title: "ファラデーケージ現象", category: "塗着不良", description: "入り組んだコーナー部に粉が入らない", cause: "静電反発による電気力線の集中", countermeasure: "電圧・エアー圧を下げる", consideration: "トリボガン（摩擦帯電）の使用で大幅改善する場合がある。", icon: "fa-magnet", color: "purple" },
+      { id: "34", title: "アース不良による薄膜", category: "塗着不良", description: "設定通り吹いても膜厚が乗らない", cause: "ハンガーへの塗膜堆積による絶縁", countermeasure: "定期的なハンガーの剥離・空焼き", consideration: "「粉が乗らない」時の原因の8割はアース不良。", icon: "fa-plug-circle-xmark", color: "stone" },
+      { id: "35", title: "突き抜け現象", category: "塗着不良", description: "網目や細かい隙間を粉が通り抜けてしまう", cause: "エアー圧（搬送エアー）が強すぎる", countermeasure: "吐出エアーを下げ、パターンエアーを広げる", consideration: "エキスパンドメタル等ではフワッと乗せる感覚が必要。", icon: "fa-wind", color: "teal" },
+      { id: "9", title: "密着不良", category: "性能不良", description: "塗膜が素地から容易に剥がれる", cause: "前処理不良、焼き付け不足", countermeasure: "前処理液の管理、オーブン条件の再確認", consideration: "クロスカット試験で評価。炉内温度プロファイラーでの確認が吉。", icon: "fa-layer-group", color: "slate" },
+      { id: "12", title: "エッジカバー性不良", category: "性能不良", description: "角の塗膜が薄く錆が発生しやすい", cause: "溶融時の表面張力によるエッジからの逃げ", countermeasure: "角のR面取り加工", consideration: "設計段階での角R（1R以上）指示が効果的。", icon: "fa-square", color: "gray" },
+      { id: "22", title: "硬度不足", category: "性能不良", description: "塗膜が柔らかく、傷がつきやすい", cause: "焼き付け不足（温度低い、時間短い）", countermeasure: "被塗物自体の温度（PMT）を測定", consideration: "データロガーによる実体温測定が不可不可欠。", icon: "fa-hammer", color: "orange" },
+      { id: "36", title: "リコート時の層間剥離", category: "性能不良", description: "2回目に塗った塗膜だけがペリッと剥がれる", cause: "1回目塗膜の過剰焼き付け（オーバーベイク）、足付け不足", countermeasure: "1回目の焼き付けをハーフベイク（仮焼き）にする、サンディング", consideration: "層間密着は粉体塗装の弱点。連続塗装の設計が重要。", icon: "fa-layer-group", color: "red" },
+      { id: "37", title: "素地の発錆（フラッシュルスト）", category: "性能不良", description: "塗装下で錆が発生し塗膜を押し上げる", cause: "水洗後の乾燥遅れ、工場内の湿度過多", countermeasure: "水切り乾燥炉の温度アップ、防錆剤の添加", consideration: "梅雨時期に前処理後放置するとすぐ錆びる。", icon: "fa-disease", color: "amber" },
+      { id: "38", title: "レーザー酸化スケール剥がれ", category: "性能不良", description: "レーザー切断面の塗膜がスケールごと剥離", cause: "レーザー切断時の黒皮（酸化被膜）の除去不足", countermeasure: "酸洗い、ショットブラスト、サンダー掛け", consideration: "黒皮の上に乗った塗膜は密着ゼロに等しい。", icon: "fa-scissors", color: "slate" },
+      { id: "39", title: "耐食性不良（早期発錆）", category: "性能不良", description: "塩水噴霧試験等で早期に錆が発生", cause: "化成皮膜（リン酸亜鉛・ジルコニウム）の形成不足", countermeasure: "化成処理液の濃度・pH管理、更新", consideration: "塗装の防錆力の7割は前処理で決まる。", icon: "fa-shield-virus", color: "emerald" },
+      { id: "13", title: "吐出ムラ（息継ぎ）", category: "作業性不良", description: "粉の出が不安定になる", cause: "インジェクター摩耗、流動性不良", countermeasure: "スリーブ交換、流動化エアー調整", consideration: "ホース内の粉だまりやレイアウトの見直しを。", icon: "fa-wind", color: "teal" },
+      { id: "21", title: "粉落ち", category: "作業性不良", description: "焼き付け前に粉が落下する", cause: "帯電不良、膜厚付けすぎ、振動", countermeasure: "ハンガー接点清掃、コンベア段差修正", consideration: "アース確保が全ての基本。", icon: "fa-arrow-down-short-wide", color: "stone" },
+      { id: "40", title: "ガン先のスピット", category: "作業性不良", description: "ガン先端に溜まった粉が塊で吐出される", cause: "電極ピンへの粉の融着、エアー圧不足", countermeasure: "清掃エアーの増圧、定期的なガン先拭き取り", consideration: "放置すると大きな「ブツ」として製品に付着する。", icon: "fa-gun", color: "gray" },
+      { id: "41", title: "ホース内の閉塞", category: "設備異常", description: "塗料ホース内で粉が詰まる", cause: "ホースのたるみ、搬送エアー不足", countermeasure: "ホースを最短距離で張る、内径の適正化", consideration: "床に這わせた長いホースは閉塞の温床。", icon: "fa-hose", color: "blue" },
+      { id: "42", title: "エアのオイルミスト混入", category: "設備異常", description: "吐出エアに油分が混ざりハジキを誘発", cause: "コンプレッサーのオイルフィルター寿命", countermeasure: "オイルフリーコンプへの変更、ラインフィルター交換", consideration: "末端でのエアチェック（白い紙に吹いてシミを見ること）を習慣化。", icon: "fa-oil-can", color: "amber" },
+      { id: "43", title: "オーブン内のヤニ落下", category: "設備異常", description: "炉内の天井から茶色い塊が落ちてくる", cause: "昇華した樹脂成分が冷えて固まり落下", countermeasure: "定期的なオーブン内部の空焼き・清掃", consideration: "製品の真上にレールがある構造だと致命的。", icon: "fa-fire-burner", color: "red" },
+      { id: "44", title: "コンベアからのゴミ落下", category: "設備異常", description: "チェーンの鉄粉や油が落ちてくる", cause: "コンベアの摩耗、過剰な注油", countermeasure: "耐熱グリスの適量塗布、ゴミ受けパンの設置", consideration: "C型レール内部の清掃は怠りがちだが重要。", icon: "fa-industry", color: "slate" },
+      { id: "15", title: "パウダーのダマ（凝集）", category: "材料不良", description: "粉体が固まってダマになる", cause: "高温・多湿保管、古い塗料", countermeasure: "恒温恒湿（25℃以下）保管、シフター通し", consideration: "在庫管理（先入れ先出し）の徹底。", icon: "fa-cubes", color: "amber" },
+      { id: "45", title: "ブロッキング（箱内固着）", category: "材料不良", description: "未開封の箱の中で粉がブロック状に固まる", cause: "輸送時の高温曝露（夏場のトラック等）、荷重", countermeasure: "クール便指定、積み上げ段数の制限", consideration: "手で崩れないレベルのブロッキングは廃棄対象。", icon: "fa-box", color: "orange" },
+      { id: "46", title: "回収粉の劣化", category: "材料不良", description: "回収粉ばかり使うと塗着効率が落ちる", cause: "粉の帯電剤の枯渇、粒子形状の丸まり", countermeasure: "新粉と回収粉を自動混合するシステムの導入", consideration: "古い回収粉は潔く廃棄することもコスト削減に繋がる。", icon: "fa-trash-can", color: "gray" },
+      { id: "47", title: "ロット間色ブレ", category: "材料不良", description: "塗料のロットが変わると色が合わない", cause: "メーカーの製造ブレ", countermeasure: "同一現場には同一ロットを割り当てる", consideration: "特にパステルカラーやグレー系で目立ちやすい。", icon: "fa-swatchbook", color: "pink" },
+      { id: "14", title: "チョーキング（白亜化）", category: "経年劣化", description: "屋外暴露で表面が粉状に劣化", cause: "紫外線による樹脂分解", countermeasure: "高耐候性樹脂への変更", consideration: "屋外製品にエポキシ混合を使用するとすぐ発生。", icon: "fa-cloud", color: "slate" },
+      { id: "48", title: "梱包材の跡", category: "その他", description: "製品にプチプチや段ボールの跡がつく", cause: "塗膜が完全に冷め切る前（約40℃以上）での梱包", countermeasure: "強制冷却ファン設置、手で触って完全に冷たいことの確認", consideration: "夏場は特に冷めにくい。焦って出荷するとクレーム直結。", icon: "fa-box-open", color: "orange" },
+      { id: "49", title: "水切り乾燥不良によるシミ", category: "その他", description: "化成処理後の水滴跡がそのまま残る", cause: "水切りエアブロー不足、乾燥炉の温度不足", countermeasure: "エアブロー工程の人員増、純水リンス", consideration: "水滴跡の上は塗着が悪く、防錆力も落ちる。", icon: "fa-droplet", color: "cyan" },
+      { id: "50", title: "シルク印刷の密着不良", category: "その他", description: "後工程で印刷した文字が剥がれる", cause: "塗料に含まれるレベリング剤（シリコンやワックス）の影響", countermeasure: "印刷対応（ワックスフリー）粉体の指定", consideration: "通常の粉体塗装は表面がツルツル弾くよう設計されているため注意。", icon: "fa-print", color: "indigo" }
+  ].map(item => ({ ...item, author: "システム", date: new Date().toISOString() }));
+
+  const icons = ["fa-droplet","fa-droplet-slash","fa-bug","fa-lemon","fa-magnet","fa-bolt","fa-bolt-lightning","fa-circle-dot","fa-palette","fa-layer-group","fa-sun","fa-triangle-exclamation","fa-square","fa-wind","fa-cloud","fa-cubes","fa-eye-slash","fa-spider","fa-water","fa-bubbles","fa-recycle","fa-hammer","fa-lines-leaning","fa-fire-flame-simple","fa-chess-board","fa-gem","fa-paintbrush","fa-smog","fa-temperature-arrow-down","fa-plug-circle-xmark","fa-disease","fa-scissors","fa-shield-virus","fa-gun","fa-hose","fa-oil-can","fa-fire-burner","fa-industry","fa-box","fa-trash-can","fa-swatchbook","fa-box-open","fa-print","fa-hand","fa-bomb","fa-truck-ramp-box"];
+  const colors = ["blue", "red", "yellow", "orange", "purple", "indigo", "pink", "slate", "teal", "emerald", "cyan", "amber", "rose", "stone", "gray"];
+  const categories = ["すべて", "表面異常", "外観異常", "膜厚異常", "塗着不良", "性能不良", "作業性不良", "設備異常", "材料不良", "経年劣化", "その他"];
+
+  const TroubleDbApp = () => {
+      const [reports, setReports] = useState([]);
+      const [searchQuery, setSearchQuery] = useState("");
+      const [selectedCategory, setSelectedCategory] = useState("すべて");
+      const [selectedReport, setSelectedReport] = useState(null);
+      const [isFormOpen, setIsFormOpen] = useState(false);
+      const [editingReport, setEditingReport] = useState(null);
+
+      useEffect(() => {
+          if (!db) { setReports(initialData); return; }
+          const unsubscribe = db.collection('trouble_reports').onSnapshot(snapshot => {
+              if (!snapshot.empty) {
+                  setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+              } else {
+                  setReports(initialData);
+                  initialData.forEach(item => db.collection('trouble_reports').doc(item.id).set(item));
+              }
+          }, () => setReports(initialData));
+          return () => unsubscribe();
+      }, []);
+
+      const filteredReports = useMemo(() => {
+          return reports.filter(r => {
+              const matchQuery = (r.title||'').includes(searchQuery) || (r.cause||'').includes(searchQuery) || (r.category||'').includes(searchQuery);
+              const matchCategory = selectedCategory === "すべて" || r.category === selectedCategory;
+              return matchQuery && matchCategory;
+          });
+      }, [reports, searchQuery, selectedCategory]);
+
+      const handleSaveReport = (data) => {
+          localStorage.setItem('powderCoatingUser', data.author);
+          const docId = editingReport ? editingReport.id : (data.id || Date.now().toString());
+          const payload = { ...data, id: docId, date: new Date().toISOString() };
+          
+          if (db) {
+              db.collection('trouble_reports').doc(docId).set(payload, { merge: true })
+                  .then(() => { setIsFormOpen(false); setEditingReport(null); })
+                  .catch(err => alert("保存エラー: " + err.message));
+          } else {
+              setReports(editingReport ? reports.map(r => r.id === docId ? payload : r) : [...reports, payload]);
+              setIsFormOpen(false); setEditingReport(null);
+          }
+      };
+
+      const handleDelete = (id) => {
+          if (!verifyAdminPassword()) return;
+          if (confirm("このレポートを削除しますか？")) {
+              if (db) {
+                  db.collection('trouble_reports').doc(id).delete()
+                      .then(() => setSelectedReport(null))
+                      .catch(err => alert("削除エラー: " + err.message));
+              } else {
+                  setReports(reports.filter(r => r.id !== id));
+                  setSelectedReport(null);
+              }
+          }
+      };
+
+      return (
+          <div className="min-h-full bg-slate-50 pb-24 text-slate-800" style={{ padding: '16px' }}>
+              <header className="bg-slate-900 text-white shadow-md rounded-xl p-4 mb-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                      <div className="flex items-center gap-2">
+                          <i className="fa-solid fa-spray-can-sparkles text-xl text-blue-400"></i>
+                          <h1 className="text-lg font-bold">粉体塗装 不具合DB</h1>
+                      </div>
+                      <div className="relative w-full sm:w-72">
+                          <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                          <input type="text" placeholder="不具合・原因を検索..." style={{ color: '#ffffff', backgroundColor: '#1e293b' }}
+                              className="w-full pl-9 pr-3 py-1.5 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-slate-400"
+                              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                      </div>
+                  </div>
+                  <div className="mt-3">
+                      <div className="flex gap-2 overflow-x-auto hide-scrollbar py-1">
+                          {categories.map(cat => (
+                              <button key={cat} onClick={() => setSelectedCategory(cat)}
+                                  className={`shrink-0 px-3 py-1 text-xs font-semibold rounded-full transition-colors ${selectedCategory === cat ? 'bg-blue-500 text-white shadow' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                                  {cat}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+              </header>
+
+              <main>
+                  <div className="flex flex-col gap-2">
+                      {filteredReports.map(report => (
+                          <div key={report.id} onClick={() => setSelectedReport(report)}
+                              className={`bg-white rounded-lg shadow-sm border-l-4 border-${report.color||'blue'}-500 cursor-pointer p-3 flex items-center justify-between hover:bg-slate-50 transition-colors`}>
+                              <div className="flex items-center gap-3 overflow-hidden">
+                                  <div className={`w-10 h-10 rounded-md shrink-0 flex items-center justify-center bg-${report.color||'blue'}-50 text-${report.color||'blue'}-600`}>
+                                      <i className={`fa-solid ${report.icon||'fa-bug'} text-lg`}></i>
+                                  </div>
+                                  <div className="truncate">
+                                      <div className="flex items-center gap-2 mb-0.5">
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 shrink-0">{report.category}</span>
+                                          <h3 className="font-bold text-sm truncate">{report.title}</h3>
+                                      </div>
+                                      <p className="text-xs text-slate-500 truncate">{report.description}</p>
+                                  </div>
+                              </div>
+                              <i className="fa-solid fa-chevron-right text-slate-300 text-xs ml-2 shrink-0"></i>
+                          </div>
+                      ))}
+                  </div>
+                  {filteredReports.length === 0 && (
+                      <div className="text-center py-12 text-slate-400">
+                          <i className="fa-solid fa-box-open text-3xl mb-2"></i>
+                          <p className="text-sm">見つかりませんでした。</p>
+                      </div>
+                  )}
+              </main>
+
+              <button onClick={() => { if(verifyAdminPassword()) { setEditingReport(null); setIsFormOpen(true); } }}
+                  className="fixed bottom-8 right-8 w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center hover:scale-105 z-10" style={{ border: 'none', cursor: 'pointer' }}>
+                  <i className="fa-solid fa-plus text-xl"></i>
+              </button>
+
+              {selectedReport && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(15, 23, 42, 0.6)' }} onClick={() => setSelectedReport(null)}>
+                      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+                          <div className={`h-1.5 w-full bg-${selectedReport.color||'blue'}-500`}></div>
+                          <div className="p-5">
+                              <div className="flex justify-between items-start mb-4">
+                                  <div className="flex items-center gap-3">
+                                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center bg-${selectedReport.color||'blue'}-100 text-${selectedReport.color||'blue'}-600`}>
+                                          <i className={`fa-solid ${selectedReport.icon||'fa-bug'} text-xl`}></i>
+                                      </div>
+                                      <div>
+                                          <span className="text-[10px] font-bold text-slate-400">{selectedReport.category}</span>
+                                          <h2 className="text-lg font-bold">{selectedReport.title}</h2>
+                                      </div>
+                                  </div>
+                                  <button onClick={() => setSelectedReport(null)} className="text-slate-400 hover:text-slate-600" style={{ border: 'none', background: 'none', cursor: 'pointer' }}><i className="fa-solid fa-xmark text-lg"></i></button>
+                              </div>
+
+                              <div className="space-y-3">
+                                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                      <h4 className="text-xs font-bold text-slate-700 mb-1 flex items-center gap-1"><i className="fa-solid fa-circle-info text-blue-500"></i> 現象</h4>
+                                      <p className="text-sm text-slate-600">{selectedReport.description}</p>
+                                  </div>
+                                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                                      <h4 className="text-xs font-bold text-red-700 mb-1 flex items-center gap-1"><i className="fa-solid fa-magnifying-glass text-red-500"></i> 原因</h4>
+                                      <p className="text-sm text-red-900">{selectedReport.cause}</p>
+                                  </div>
+                                  <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                                      <h4 className="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1"><i className="fa-solid fa-shield-halved text-emerald-500"></i> 対策案</h4>
+                                      <p className="text-sm text-emerald-900">{selectedReport.countermeasure}</p>
+                                  </div>
+                                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100">
+                                      <h4 className="text-xs font-bold text-amber-700 mb-1 flex items-center gap-1"><i className="fa-solid fa-lightbulb text-amber-500"></i> 考察・ポイント</h4>
+                                      <p className="text-sm text-amber-900">{selectedReport.consideration}</p>
+                                  </div>
+                              </div>
+
+                              <div className="mt-5 pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
+                                  <div><i className="fa-solid fa-user-pen"></i> {selectedReport.author}</div>
+                                  <div className="flex gap-2">
+                                      <button onClick={() => { if(verifyAdminPassword()) { setSelectedReport(null); setEditingReport(selectedReport); setIsFormOpen(true); } }} className="px-3 py-1.5 font-bold text-blue-600 bg-blue-50 rounded" style={{ border: 'none', cursor: 'pointer' }}>編集</button>
+                                      <button onClick={() => handleDelete(selectedReport.id)} className="px-3 py-1.5 font-bold text-red-600 bg-red-50 rounded" style={{ border: 'none', cursor: 'pointer' }}>削除</button>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
+
+              {isFormOpen && (
+                  <TroubleFormModal 
+                      onClose={() => { setIsFormOpen(false); setEditingReport(null); }} 
+                      onSave={handleSaveReport} 
+                      initialData={editingReport} 
+                  />
+              )}
+          </div>
+      );
+  };
+
+  const TroubleFormModal = ({ onClose, onSave, initialData }) => {
+      const [formData, setFormData] = useState(initialData || {
+          title: "", category: "表面異常", description: "", cause: "", countermeasure: "", consideration: "", icon: "fa-bug", color: "slate",
+          author: localStorage.getItem('powderCoatingUser') || ""
+      });
+
+      const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+      return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(15, 23, 42, 0.6)' }} onClick={onClose}>
+              <div className="bg-white rounded-xl w-full max-w-2xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                  <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                      <h2 className="text-md font-bold flex items-center gap-2">
+                          <i className={`fa-solid ${initialData ? 'fa-pen' : 'fa-plus'} text-blue-500`}></i>
+                          {initialData ? "レポート編集" : "新規不具合レポート"}
+                      </h2>
+                      <button onClick={onClose} className="text-slate-400" style={{ border: 'none', background: 'none', cursor: 'pointer' }}><i className="fa-solid fa-xmark text-lg"></i></button>
+                  </div>
+                  
+                  <div className="p-4 overflow-y-auto flex-1 hide-scrollbar space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">タイトル</label>
+                              <input type="text" name="title" value={formData.title} onChange={handleChange} className="w-full px-3 py-1.5 border rounded text-sm focus:outline-none focus:border-blue-400" required />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">カテゴリ</label>
+                              <select name="category" value={formData.category} onChange={handleChange} className="w-full px-3 py-1.5 border rounded text-sm focus:outline-none focus:border-blue-400">
+                                  {categories.filter(c => c !== "すべて").map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                          </div>
+                      </div>
+
+                      <div className="space-y-3">
+                          <div><label className="block text-xs font-bold text-slate-700 mb-1">現象</label><textarea name="description" value={formData.description} onChange={handleChange} rows="2" className="w-full px-3 py-1.5 border rounded text-sm focus:outline-none focus:border-blue-400"></textarea></div>
+                          <div><label className="block text-xs font-bold text-red-700 mb-1">原因</label><textarea name="cause" value={formData.cause} onChange={handleChange} rows="2" className="w-full px-3 py-1.5 border bg-red-50 rounded text-sm focus:outline-none focus:border-red-400"></textarea></div>
+                          <div><label className="block text-xs font-bold text-emerald-700 mb-1">対策案</label><textarea name="countermeasure" value={formData.countermeasure} onChange={handleChange} rows="2" className="w-full px-3 py-1.5 border bg-emerald-50 rounded text-sm focus:outline-none focus:border-emerald-400"></textarea></div>
+                          <div><label className="block text-xs font-bold text-amber-700 mb-1">考察・ポイント</label><textarea name="consideration" value={formData.consideration} onChange={handleChange} rows="2" className="w-full px-3 py-1.5 border bg-amber-50 rounded text-sm focus:outline-none focus:border-amber-400"></textarea></div>
+                      </div>
+
+                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                          <label className="block text-xs font-bold text-blue-800 mb-1"><i className="fa-solid fa-user-pen"></i> レポート者</label>
+                          <input type="text" name="author" value={formData.author} onChange={handleChange} placeholder="例: 山田太郎 (次回以降自動入力)" className="w-full px-3 py-1.5 border border-blue-200 rounded text-sm focus:outline-none focus:border-blue-400" required />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">アイコン</label>
+                              <div className="flex flex-wrap gap-1">
+                                  {icons.slice(0, 15).map(icon => (
+                                      <button key={icon} type="button" onClick={() => setFormData({...formData, icon})} className={`w-7 h-7 rounded text-xs flex items-center justify-center ${formData.icon === icon ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`} style={{ border: 'none', cursor: 'pointer' }}><i className={`fa-solid ${icon}`}></i></button>
+                                  ))}
+                              </div>
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">カラー</label>
+                              <div className="flex flex-wrap gap-1">
+                                  {colors.map(c => (
+                                      <button key={c} type="button" onClick={() => setFormData({...formData, color: c})} className={`w-5 h-5 rounded-full bg-${c}-500 border-2 ${formData.color === c ? 'border-slate-800' : 'border-transparent'}`} style={{ cursor: 'pointer' }}/>
+                                  ))}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                      <button onClick={onClose} className="px-4 py-2 rounded text-sm font-bold text-slate-600 bg-white border border-slate-200" style={{ cursor: 'pointer' }}>キャンセル</button>
+                      <button onClick={() => onSave(formData)} disabled={!formData.title || !formData.author} className="px-4 py-2 rounded text-sm font-bold text-white bg-blue-600 disabled:opacity-50" style={{ border: 'none', cursor: 'pointer' }}>保存</button>
+                  </div>
+              </div>
+          </div>
+      );
+  };
+
+  const root = ReactDOM.createRoot(document.getElementById('trouble-db-root'));
+  root.render(<TroubleDbApp />);
+</script>
+</body>
+</html>
